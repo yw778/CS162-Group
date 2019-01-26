@@ -24,11 +24,15 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+/* Added list of sleeping threads. */
+struct list thread_sleep_list;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+static bool sleep_less (const struct list_elem *a, const struct list_elem *b, void *aux);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -37,6 +41,8 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  list_init(&thread_sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -86,14 +92,26 @@ timer_elapsed (int64_t then)
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
+//void
+//timer_sleep (int64_t ticks)
+//{
+//  int64_t start = timer_ticks ();
+//
+//  ASSERT (intr_get_level () == INTR_ON);
+//  while (timer_elapsed (start) < ticks)
+//    thread_yield ();
+//}
+
 void
 timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
-
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks)
-    thread_yield ();
+  struct thread* t = thread_current();
+  t->wake_until = start + ticks;
+  enum intr_level old_level = intr_disable();
+  list_insert_ordered(&thread_sleep_list, &t->elem, sleep_less, NULL)
+  thread_block();
+  intr_set_level(old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -243,4 +261,12 @@ real_time_delay (int64_t num, int32_t denom)
      the possibility of overflow. */
   ASSERT (denom % 1000 == 0);
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000));
+}
+/* * Returns true if thread A has less wake_until time than thread B, false otherwise. */
+static bool
+sleep_less (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+  struct thread *thread_a = list_entry (a, struct thread, elem);
+  struct thread *thread_b = list_entry (b, struct thread, elem);
+
+  return thread_a->wake_until < thread_b->wake_until;
 }
