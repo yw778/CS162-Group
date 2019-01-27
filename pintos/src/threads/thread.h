@@ -90,6 +90,11 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    /* Used for part2 priority scheduling. */
+    int default_priority;
+    struct list locks;
+    struct lock *lock_waiting;
+    /* End. */
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t wake_until;                 /* Keep track of when this thread should wake up. */
 
