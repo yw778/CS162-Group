@@ -185,6 +185,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+  lock->priority = -1;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -208,9 +209,9 @@ lock_acquire (struct lock *lock)
   } else {
     enum intr_level old_level;
     old_level = intr_disable();
-    lock->priority = lock.priority >= thread_get_priority()?
+    lock->priority = lock->priority >= thread_get_priority()?
                       lock->priority : thread_get_priority();
-    donate(lock->holder, lock->priority);
+    donate_priority(lock->holder, lock->priority);
     thread_current()->lock_waiting = lock;
     intr_set_level(old_level);
 
@@ -262,7 +263,7 @@ lock_release (struct lock *lock)
     old_level = intr_disable();
     lock->holder = NULL;
 
-    if (!list_empty(&lock_semaphore.waiters)) {
+    if (!list_empty(&lock->semaphore.waiters)) {
       // Restore lock's priority.
       lock->priority = list_entry(list_front(&lock->semaphore.waiters), struct thread, elem)->priority;
     } else {
@@ -271,7 +272,7 @@ lock_release (struct lock *lock)
     list_remove(&lock->elem);
     sema_up (&lock->semaphore);
     // Restore current thread's priority.
-    donate(thread_current(), next_donated_priority(thread_current()));
+    donate_priority(thread_current(), next_donate_priority(thread_current()));
     intr_set_level(old_level);
   }
 }

@@ -342,7 +342,7 @@ next_donate_priority(struct thread *t) {
   if (list_empty(&t->locks))
     new_priority = t->default_priority;
   else
-    new_priority = list_entry(list_front(&t->locks)), struct lock, elem)->priority;
+    new_priority = list_entry(list_front(&t->locks), struct lock, elem)->priority;
   return new_priority;
 }
 
@@ -371,7 +371,7 @@ donate_priority(struct thread *t, int priority) {
   struct thread *tmp = t;
   while(tmp != NULL) {
     tmp->priority = priority;
-    if (tmp->status = THREAD_READY || tmp->status = THREAD_BLOCKED) {
+    if (tmp->status == THREAD_READY || tmp->status == THREAD_BLOCKED) {
       list_modify_ordered(&tmp->elem, thread_greater_priority, NULL);
     }
     if (tmp->lock_waiting) {
@@ -518,8 +518,10 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  list_init (&t->locks);
+  t->default_priority = priority;
+  t->lock_waiting = NULL;
   t->magic = THREAD_MAGIC;
-
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
