@@ -97,6 +97,8 @@ struct thread
     /* End. */
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t wake_until;                 /* Keep track of when this thread should wake up. */
+    fixed_point_t recent_cpu;
+    int nice;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
