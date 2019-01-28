@@ -148,5 +148,9 @@ int thread_get_load_avg (void);
 
 /* For priority scheduler. */
 bool thread_greater_priority (const struct list_elem *, const struct list_elem *, void *);
+int next_donate_priority(struct thread *t);
+bool preempts(const struct thread *t);
+void donate_priority(struct thread *t, int priority);
+
 
 #endif /* threads/thread.h */

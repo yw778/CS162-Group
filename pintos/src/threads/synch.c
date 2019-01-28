@@ -32,10 +32,10 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-statuc bool sema_greater_priority (const struct list_elem *a,
+static bool sema_greater_priority (const struct list_elem *a,
                                     const struct list_elem *b,
                                     void *aux);
-statuc bool lock_greater_priority (const struct list_elem *a,
+static bool lock_greater_priority (const struct list_elem *a,
                                    const struct list_elem *b,
                                    void *aux);
 
@@ -75,7 +75,6 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0)
     {
-//      list_push_back (&sema->waiters, &thread_current ()->elem);
       list_insert_ordered(&sema->waiters, &thread_current ()->elem, thread_greater_priority, NULL);
       thread_block ();
     }
@@ -264,12 +263,14 @@ lock_release (struct lock *lock)
     lock->holder = NULL;
 
     if (!list_empty(&lock_semaphore.waiters)) {
+      // Restore lock's priority.
       lock->priority = list_entry(list_front(&lock->semaphore.waiters), struct thread, elem)->priority;
     } else {
       lock->priority = -1;
     }
     list_remove(&lock->elem);
     sema_up (&lock->semaphore);
+    // Restore current thread's priority.
     donate(thread_current(), next_donated_priority(thread_current()));
     intr_set_level(old_level);
   }

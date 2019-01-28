@@ -485,6 +485,27 @@ list_unique (struct list *list, struct list *duplicates,
       elem = next;
 }
 
+void list_modify_ordered (struct list_elem *elem,
+                          list_less_func *less, void *aux)
+{
+  ASSERT (elem != NULL);
+  ASSERT (less != NULL);
+
+  struct list_elem *e = elem;
+
+  while (!is_head (e->prev) && less (elem, e->prev, aux))
+    e = e->prev;
+
+  while (!is_tail (e) && less (e->next, elem, aux))
+    e = e->next;
+
+  if (e != elem)
+  {
+    list_remove (elem);
+    list_insert (e, elem);
+  }
+}
+
 /* Returns the element in LIST with the largest value according
    to LESS given auxiliary data AUX.  If there is more than one
    maximum, returns the one that appears earlier in the list.  If
