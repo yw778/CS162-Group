@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "devices/timer.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -73,7 +74,7 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
 static void update_recent_cpu(struct thread *, void *);
-static void update_load_average();
+static void update_load_average(void);
 static void calculate_mlfqs_priority(struct thread *, void *);
 
 /* Initializes the threading system by transforming the code
@@ -131,23 +132,22 @@ thread_tick (void)
 
   if (thread_mlfqs) {
     if (t != idle_thread) {
-      thread_current()->recent_cpu = fix_add(t->recent_cpu, 1);
+      thread_current()->recent_cpu = fix_add(t->recent_cpu, fix_int(1));
     }
     if (timer_ticks() % TIMER_FREQ == 0) {
       update_load_average();
       thread_foreach(update_recent_cpu, NULL);
       thread_foreach(calculate_mlfqs_priority, NULL);
-      list_sort(&ready_list, thread_greater_priority);
+      list_sort(&ready_list, thread_greater_priority, NULL);
       intr_yield_on_return ();
     } else if (timer_ticks () % TIME_SLICE == 0) {
       // Todo: thread_foreach?.
       thread_foreach(calculate_mlfqs_priority, NULL);
-      list_sort(&ready_list, thread_greater_priority);
+      list_sort(&ready_list, thread_greater_priority, NULL);
       intr_yield_on_return ();
     }
   }
 
-  }
 
   /* Update statistics. */
   if (t == idle_thread)
@@ -164,17 +164,23 @@ thread_tick (void)
     intr_yield_on_return ();
 }
 
-void
+static void
 update_recent_cpu(struct thread *t, void * aux UNUSED) {
-    t->recent_cpu = fix_add(fix_mul(fix_div(fix_mul(2, load_avg), fix_div(2, load_avg) + 1),
+    t->recent_cpu = fix_add(fix_mul(fix_div(fix_mul(fix_int(2), load_avg),
+            fix_add(fix_mul(fix_int(2), load_avg), fix_int(1))),
             t->recent_cpu), fix_int(t->nice));
 }
 
 
 
-void
-update_load_average() {
-  load_avg = fix_add(fix_mul(load_avg, fix_div(59, 60)), fix_mul(list_size(&ready_list), fix_div(1, 60)));
+static void
+update_load_average(void) {
+  int not_idle = 1; // 1 when running thread is not the idle thread
+  if (thread_current () == idle_thread)
+    not_idle = 0;
+  load_avg = fix_add(fix_mul(load_avg, fix_div(fix_int(59), fix_int(60))),
+                     fix_mul(fix_int(list_size(&ready_list) + not_idle), fix_div(fix_int(1), fix_int(60))));
+}
 
 /* Prints thread statistics. */
 void
@@ -455,9 +461,9 @@ thread_set_nice (int nice UNUSED)
   intr_set_level(old_level);
 }
 
-void
+static void
 calculate_mlfqs_priority(struct thread *t, void *aux UNUSED) {
-  t->priority = PRI_MAX - fix_trunc(fix_div(t->recent_cpu, 4)) - t->nice * 2;
+  t->priority = fix_trunc(fix_sub(fix_sub(fix_int(PRI_MAX),fix_div(t->recent_cpu, fix_int(4))), fix_int(t->nice * 2)));
 }
 
 /* Returns the current thread's nice value. */
@@ -473,7 +479,7 @@ int
 thread_get_load_avg (void)
 {
   /* Not yet implemented. */
-  return fix_round(fix_mul(load_avg, 100));
+  return fix_round(fix_scale (load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -481,7 +487,7 @@ int
 thread_get_recent_cpu (void)
 {
   /* Not yet implemented. */
-  return fix_round(fix_mul(thread_current()->recent_cpu, 100));
+  return fix_round (fix_scale (thread_current ()->recent_cpu, 100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
