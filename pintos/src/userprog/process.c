@@ -15,6 +15,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -62,7 +63,67 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+  // Count the number of arguments passed in.
+  int num_args = 1;
+  char *buff = (char *)malloc(1024);
+  memset(buff, 0, 1024);
+  strlcpy(buff, file_name, strlen(file_name));
+
+  char *token, *save_ptr;
+
+  for (token = strtok_r (buff, " ", &save_ptr);
+       token != NULL;
+       token = strtok_r (NULL, " ", &save_ptr)) {
+    num_args++;
+  }
+  free(buff);
+
+  int i = 0;
+  char *buff1 = (char *)malloc(1024);
+  memset(buff1, 0, 1024);
+  strlcpy(buff1, file_name, strlen(file_name));
+  char *args[num_args];
+  for (token = strtok_r (buff1, " ", &save_ptr); token != NULL;
+       token = strtok_r (NULL, " ", &save_ptr)) {
+    args[i] = token;
+    i++;
+  }
+  free(buff1);
+
   success = load (file_name, &if_.eip, &if_.esp);
+
+  if (success) {
+    // Copy args from right to left.
+    char **esp = &if_.esp;
+    for (i = num_args - 1; i >= 0; i--) {
+      *esp -= strlen(args[i]) + 1;
+      strlcpy(*esp, args[i], strlen(args[i]) + 1);
+    }
+    // Word alignment.
+    int align_ofs = ((uintptr_t) *esp) % 4;
+    int j = 0;
+    for (j = 0; j < align_ofs; ++j) {
+      *esp -= 1;
+      **esp = 0;
+    }
+    *esp -= 4;
+    **esp = NULL;
+
+    // Store address of the args in the thread stack.
+    uintptr_t addr = PHYS_BASE;
+    for (i = num_args - 1; i >= 0; i--) {
+      *esp -= 4;
+      addr -= strlen(args[i]) + 1;
+      *((unsigned int*) *esp) = (uintptr_t *) addr;
+    }
+    *esp -= 4;
+    *((unsigned int*) *esp) = (unsigned int *) (*esp + 4);
+    *esp -= sizeof (int);
+    *((int *) *esp) = num_args;
+    *esp -= 4;
+    **esp = NULL;
+  }
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -370,6 +431,26 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
   return true;
 }
 
+/* Create a minimal stack by mapping a zeroed page at the top of
+   user virtual memory. */
+static bool
+setup_stack (void **esp)
+{
+  uint8_t *kpage;
+  bool success = false;
+
+  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  if (kpage != NULL)
+    {
+      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      if (success)
+        *esp = PHYS_BASE;
+      else
+        palloc_free_page (kpage);
+    }
+  return success;
+}
+
 /* Loads a segment starting at offset OFS in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
    memory are initialized, as follows:
@@ -394,59 +475,39 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
   file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0)
+  {
+    /* Calculate how to fill this page.
+       We will read PAGE_READ_BYTES bytes from FILE
+       and zero the final PAGE_ZERO_BYTES bytes. */
+    size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+    size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+    /* Get a page of memory. */
+    uint8_t *kpage = palloc_get_page (PAL_USER);
+    if (kpage == NULL)
+      return false;
+
+    /* Load this page. */
+    if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
     {
-      /* Calculate how to fill this page.
-         We will read PAGE_READ_BYTES bytes from FILE
-         and zero the final PAGE_ZERO_BYTES bytes. */
-      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-      size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
-      /* Get a page of memory. */
-      uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
-        return false;
-
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          palloc_free_page (kpage);
-          return false;
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable))
-        {
-          palloc_free_page (kpage);
-          return false;
-        }
-
-      /* Advance. */
-      read_bytes -= page_read_bytes;
-      zero_bytes -= page_zero_bytes;
-      upage += PGSIZE;
+      palloc_free_page (kpage);
+      return false;
     }
+    memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+    /* Add the page to the process's address space. */
+    if (!install_page (upage, kpage, writable))
+    {
+      palloc_free_page (kpage);
+      return false;
+    }
+
+    /* Advance. */
+    read_bytes -= page_read_bytes;
+    zero_bytes -= page_zero_bytes;
+    upage += PGSIZE;
+  }
   return true;
-}
-
-/* Create a minimal stack by mapping a zeroed page at the top of
-   user virtual memory. */
-static bool
-setup_stack (void **esp)
-{
-  uint8_t *kpage;
-  bool success = false;
-
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL)
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
-    }
-  return success;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
