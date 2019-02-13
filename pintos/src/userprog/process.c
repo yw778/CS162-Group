@@ -15,6 +15,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
@@ -64,7 +65,7 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
 
   // Count the number of arguments passed in.
-  int num_args = 1;
+  int num_args = 0;
   char *buff = (char *)malloc(1024);
   memset(buff, 0, 1024);
   strlcpy(buff, file_name, strlen(file_name));
@@ -90,7 +91,7 @@ start_process (void *file_name_)
   }
   free(buff1);
 
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (args[0], &if_.eip, &if_.esp);
 
   if (success) {
     // Copy args from right to left.
