@@ -89,7 +89,6 @@ start_process (void *file_name_)
     args[i] = token;
     i++;
   }
-  free(buff1);
 
   success = load (args[0], &if_.eip, &if_.esp);
 
@@ -127,6 +126,7 @@ start_process (void *file_name_)
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
+  free(buff1);
   if (!success)
     thread_exit ();
 
